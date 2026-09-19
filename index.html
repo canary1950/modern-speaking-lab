@@ -181,5 +181,21 @@ react/cjs/react-jsx-runtime.production.js:
   mic.onclick=()=>recording?stop():start();
 })();
 </script>
+<style id="v30-layout-fix">
+/* Keep the recorder in normal document flow so it never covers the AI reply. */
+#conversationApp .cvChat{padding-bottom:8px}
+#conversationApp .cvControls{position:relative;bottom:auto;margin-bottom:20px;background:#071426;backdrop-filter:none}
+</style>
+<script>
+/* The analysis screen is the preserved v29 bundle; update only its visible release label. */
+(()=>{
+  const setV30Label=()=>document.querySelectorAll('.release').forEach(el=>{
+    if(el.textContent.includes('29')) el.textContent='更新版 30';
+  });
+  setV30Label();
+  const observer=new MutationObserver(setV30Label);
+  observer.observe(document.getElementById('root'),{childList:true,subtree:true});
+})();
+</script>
 </body>
 </html>
