@@ -123,7 +123,7 @@ react/cjs/react-jsx-runtime.production.js:
 </style>
 <button id="conversationLauncher" type="button">💬 AI英会話モード</button>
 <section id="conversationApp" aria-label="AI英会話モード">
-  <header class="cvTop"><div><h1>💬 Modern Speaking Lab — AI英会話</h1><small>更新版32・二段階の意味監査</small></div><div class="cvActions"><button class="cvBtn" id="cvApi">⚙ API設定</button><button class="cvBtn" id="cvBack">← 添削モード</button></div></header>
+  <header class="cvTop"><div><h1>💬 Modern Speaking Lab — AI英会話</h1><small>更新版33・会話優先／バックグラウンド監査</small></div><div class="cvActions"><button class="cvBtn" id="cvApi">⚙ API設定</button><button class="cvBtn" id="cvBack">← 添削モード</button></div></header>
   <main class="cvShell">
     <div class="cvSettings">
       <div class="cvSetting"><label for="cvTopic">会話テーマ</label><select class="cvSelect" id="cvTopic"><option value="free conversation">自由会話</option><option value="travel">旅行</option><option value="hobbies">趣味</option><option value="daily life">日常生活</option><option value="education">教育</option><option value="table tennis">卓球</option></select></div>
@@ -162,10 +162,10 @@ react/cjs/react-jsx-runtime.production.js:
     throw last||new Error('Geminiに接続できませんでした。');
   }
   function speak(text){if(!('speechSynthesis'in window)||!text)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);const voices=speechSynthesis.getVoices().filter(v=>/^en[-_]/i.test(v.lang));u.voice=voices.find(v=>/samantha|ava|aria|jenny|google us english|premium|enhanced|natural/i.test(v.name))||voices[0]||null;u.lang=u.voice?.lang||'en-US';u.rate=Number($('cvSpeed').value);u.pitch=1;speechSynthesis.speak(u)}
-  function addTurn(role,english,japanese,feedback={}){
-    const welcome=$('cvWelcome');if(welcome)welcome.remove();const row=document.createElement('div');row.className='cvTurn '+(role==='ai'?'ai':'user');
+  function renderFeedback(english,feedback={}){
+    if(feedback.pending)return '<div class="cvFeedback"><div class="cvAudit pending">⏳ 意味を守って添削中です。会話は続けられます。</div></div>';
     let correction='';
-    if(role==='user'&&$('cvCorrectionMode').value==='brief'){
+    if($('cvCorrectionMode').value==='brief'){
       const minimal=feedback.minimalCorrection||english,natural=feedback.naturalEnglish||minimal;
       const minimalChanged=minimal.trim()!==english.trim(),naturalChanged=natural.trim()!==minimal.trim();
       const possible=feedback.possibleIntentionEnglish&&feedback.possibleIntentionEnglish.trim()!==natural.trim();
@@ -178,10 +178,16 @@ react/cjs/react-jsx-runtime.production.js:
         ${possible?`<div class="cvFeedbackBlock possible"><strong>3. Possible Meaning｜別の意図の候補</strong><p><em>If you meant ...</em> ${esc(feedback.possibleIntentionEnglish)}</p><small>${esc(feedback.possibleIntentionJapanese||'文脈から考えられる別の意図です。元の発言の訂正ではありません。')}</small></div>`:''}
         ${feedback.clarifyingQuestion?`<div class="cvClarify"><strong>意味の確認：</strong>${esc(feedback.clarifyingQuestion)}</div>`:''}
       </div>`;
-    }
+    }return correction;
+  }
+  function addTurn(role,english,japanese,feedback={}){
+    const welcome=$('cvWelcome');if(welcome)welcome.remove();const row=document.createElement('div');row.className='cvTurn '+(role==='ai'?'ai':'user');
+    const correction=role==='user'?`<div class="cvFeedbackSlot">${renderFeedback(english,feedback)}</div>`:'';
     row.innerHTML=`<div class="cvAvatar">${role==='ai'?'AI':'You'}</div><div class="cvBubble"><div class="cvWho">${role==='ai'?'AI PARTNER':'YOU'}</div><div class="cvEnglish">${esc(english)}</div><div class="cvJapanese">${esc(japanese)}</div>${correction}${role==='ai'?'<div class="cvBubbleActions"><button class="cvMini">🔊 もう一度聞く</button></div>':''}</div>`;
     if(role==='ai')row.querySelector('.cvMini').onclick=()=>speak(english);chat.appendChild(row);row.scrollIntoView({behavior:'smooth',block:'end'});
+    return row;
   }
+  function updateTurnFeedback(row,english,feedback){if(row?.isConnected){const slot=row.querySelector('.cvFeedbackSlot');if(slot)slot.innerHTML=renderFeedback(english,feedback)}}
   async function processAudio(blob){
     const key=(localStorage.getItem(keyName)||'').trim();if(!key){$('cvApi').click();throw new Error('最初にGemini APIキーを設定してください。')}
     const b64=await blobToBase64(blob), topic=$('cvTopic').value, level=$('cvLevel').value;
@@ -206,8 +212,15 @@ CRITICAL RULE: Never place an inferred meaning inside minimalCorrection or natur
 
 Conversation so far:\n${recent||'(first turn)'}`;
     const draft=await callGemini(key,{contents:[{parts:[{text:prompt},{inlineData:{mimeType:blob.type||'audio/webm',data:b64}}]}],generationConfig:{responseMimeType:'application/json',maxOutputTokens:2400,temperature:.25}});
-    if(!draft.transcript)return draft;
-    setStatus('添削案の意味が変わっていないか監査しています…');
+    return draft;
+  }
+  const semanticRisk=(original,candidate)=>{
+    const a=String(original||'').toLowerCase(),b=String(candidate||'').toLowerCase();
+    const anchors=['will','may','might','could','should','must','fine','great','good','bad','love','like','hate','want','need','hope','always','never','sometimes','probably','definitely'];
+    return anchors.some(word=>new RegExp(`\\b${word}\\b`,'i').test(a)!==new RegExp(`\\b${word}\\b`,'i').test(b));
+  };
+  async function auditDraft(draft){
+    const key=(localStorage.getItem(keyName)||'').trim();
     const auditPrompt=`You are a strict semantic auditor for English-learning corrections. Return valid JSON only. Compare the learner's exact transcript with the proposed corrections below.
 
 EXACT TRANSCRIPT: ${draft.transcript}
@@ -229,13 +242,18 @@ auditNote: one short Japanese summary of what the audit protected.
 Be conservative. Preserving the learner's meaning is more important than making the English impressive.`;
     try{
       const audited=await callGemini(key,{contents:[{parts:[{text:auditPrompt}]}],generationConfig:{responseMimeType:'application/json',maxOutputTokens:1700,temperature:0}});
-      return {...draft,...audited,semanticAudit:audited.auditPassed===true?'passed':'safe'};
+      let result={...draft,...audited,semanticAudit:audited.auditPassed===true?'passed':'safe'};
+      const minimalRisk=semanticRisk(draft.transcript,result.minimalCorrection),naturalRisk=semanticRisk(draft.transcript,result.naturalEnglish);
+      if(minimalRisk){result.minimalCorrection=draft.transcript;result.minimalNote='意味・強さ・確実性に関わる語の変化を検出したため、原文を保持しました。';result.semanticAudit='safe'}
+      if(naturalRisk){result.naturalEnglish=result.minimalCorrection||draft.transcript;result.naturalNote='意味のニュアンスが変わる可能性を検出したため、最小限の訂正と同じ表現を採用しました。';result.semanticAudit='safe'}
+      if(minimalRisk||naturalRisk)result.auditNote='AI監査に加えて、プログラム側の意味アンカー検査で原文を保護しました。';
+      return result;
     }catch(e){
       return {...draft,minimalCorrection:draft.transcript,naturalEnglish:draft.transcript,minimalNote:'意味監査を完了できなかったため、元の英文を保持しました。',naturalNote:'安全のため積極的な言い換えを採用していません。',possibleIntentionEnglish:'',possibleIntentionJapanese:'',clarifyingQuestion:'',semanticAudit:'safe',auditNote:'監査エラーのため原文を保護しました。'};
     }
   }
   async function start(){
-    clearError();if(busy)return;try{speechSynthesis?.cancel();const stream=await navigator.mediaDevices.getUserMedia({audio:true});const preferred=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'';recorder=new MediaRecorder(stream,preferred?{mimeType:preferred}:undefined);chunks=[];recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};recorder.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});busy=true;mic.disabled=true;setStatus('英語を文字化し、意味を守って添削しています…');hint.textContent='少しお待ちください';try{const r=await processAudio(blob);if(!r.transcript)throw new Error('英語を聞き取れませんでした。少し長めにはっきり話してください。');addTurn('user',r.transcript,r.userTranslation,r);conversation.push({role:'user',text:r.minimalCorrection||r.transcript});addTurn('ai',r.replyEnglish,r.replyTranslation);conversation.push({role:'assistant',text:r.replyEnglish});setStatus('AIが返答しました。続けて英語で話せます。');speak(r.replyEnglish)}catch(e){showError(e.message||'処理できませんでした。');setStatus('もう一度お試しください。')}finally{busy=false;mic.disabled=false;hint.textContent='タップして次の発話を録音します'}};recorder.start();recording=true;mic.classList.add('recording');mic.textContent='■';status.classList.add('recording');setStatus('録音中です。話し終えたら停止してください。','recording');hint.textContent='タップして録音を停止します'}catch(e){showError('マイクを開始できませんでした。ブラウザのマイク許可を確認してください。');recording=false}}
+    clearError();if(busy)return;try{speechSynthesis?.cancel();const stream=await navigator.mediaDevices.getUserMedia({audio:true});const preferred=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'';recorder=new MediaRecorder(stream,preferred?{mimeType:preferred}:undefined);chunks=[];recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};recorder.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});busy=true;mic.disabled=true;setStatus('英語を文字化し、会話の返答を考えています…');hint.textContent='少しお待ちください';try{const draft=await processAudio(blob);if(!draft.transcript)throw new Error('英語を聞き取れませんでした。少し長めにはっきり話してください。');const userRow=addTurn('user',draft.transcript,draft.userTranslation,{pending:true});conversation.push({role:'user',text:draft.transcript});addTurn('ai',draft.replyEnglish,draft.replyTranslation);conversation.push({role:'assistant',text:draft.replyEnglish});setStatus('AIが返答しました。添削は裏で監査中です。続けて話せます。');speak(draft.replyEnglish);auditDraft(draft).then(audited=>{updateTurnFeedback(userRow,draft.transcript,audited)}).catch(()=>{updateTurnFeedback(userRow,draft.transcript,{minimalCorrection:draft.transcript,naturalEnglish:draft.transcript,minimalNote:'監査エラーのため原文を保持しました。',naturalNote:'安全のため原文を保持しました。',semanticAudit:'safe',auditNote:'監査を完了できませんでした。'})})}catch(e){showError(e.message||'処理できませんでした。');setStatus('もう一度お試しください。')}finally{busy=false;mic.disabled=false;hint.textContent='タップして次の発話を録音します'}};recorder.start();recording=true;mic.classList.add('recording');mic.textContent='■';status.classList.add('recording');setStatus('録音中です。話し終えたら停止してください。','recording');hint.textContent='タップして録音を停止します'}catch(e){showError('マイクを開始できませんでした。ブラウザのマイク許可を確認してください。');recording=false}}
   function stop(){if(recorder&&recorder.state!=='inactive')recorder.stop();recording=false;mic.classList.remove('recording');mic.textContent='🎙️';status.classList.remove('recording')}
   mic.onclick=()=>recording?stop():start();
 })();
@@ -248,6 +266,7 @@ Be conservative. Preserving the learner's meaning is more important than making 
 #conversationApp .cvAudit{padding:8px 11px;border-radius:8px;font-size:12px;font-weight:800}
 #conversationApp .cvAudit.passed{color:#bbf7d0;background:#064e3b88;border:1px solid #34d39966}
 #conversationApp .cvAudit.safe{color:#fde68a;background:#4a321099;border:1px solid #fbbf2466}
+#conversationApp .cvAudit.pending{color:#bae6fd;background:#0c4a6e88;border:1px solid #38bdf866}
 #conversationApp .cvFeedbackBlock{padding:11px 13px;border-radius:9px;line-height:1.55}
 #conversationApp .cvFeedbackBlock strong{display:block;margin-bottom:5px;font-size:13px}
 #conversationApp .cvFeedbackBlock p{margin:0 0 4px;color:#f8fafc;font-size:15px}
@@ -266,7 +285,7 @@ Be conservative. Preserving the learner's meaning is more important than making 
 /* The analysis screen is the preserved bundle; update only its visible release label. */
 (()=>{
   const setCurrentLabel=()=>document.querySelectorAll('.release').forEach(el=>{
-    if(!el.textContent.includes('32')) el.textContent='更新版 32';
+    if(!el.textContent.includes('33')) el.textContent='更新版 33';
   });
   setCurrentLabel();
   const observer=new MutationObserver(setCurrentLabel);
