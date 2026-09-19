@@ -123,7 +123,7 @@ react/cjs/react-jsx-runtime.production.js:
 </style>
 <button id="conversationLauncher" type="button">💬 AI英会話モード</button>
 <section id="conversationApp" aria-label="AI英会話モード">
-  <header class="cvTop"><div><h1>💬 Modern Speaking Lab — AI英会話</h1><small>更新版30・会話／翻訳／音声</small></div><div class="cvActions"><button class="cvBtn" id="cvApi">⚙ API設定</button><button class="cvBtn" id="cvBack">← 添削モード</button></div></header>
+  <header class="cvTop"><div><h1>💬 Modern Speaking Lab — AI英会話</h1><small>更新版31・意味を守る3段階添削</small></div><div class="cvActions"><button class="cvBtn" id="cvApi">⚙ API設定</button><button class="cvBtn" id="cvBack">← 添削モード</button></div></header>
   <main class="cvShell">
     <div class="cvSettings">
       <div class="cvSetting"><label for="cvTopic">会話テーマ</label><select class="cvSelect" id="cvTopic"><option value="free conversation">自由会話</option><option value="travel">旅行</option><option value="hobbies">趣味</option><option value="daily life">日常生活</option><option value="education">教育</option><option value="table tennis">卓球</option></select></div>
@@ -162,9 +162,20 @@ react/cjs/react-jsx-runtime.production.js:
     throw last||new Error('Geminiに接続できませんでした。');
   }
   function speak(text){if(!('speechSynthesis'in window)||!text)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);const voices=speechSynthesis.getVoices().filter(v=>/^en[-_]/i.test(v.lang));u.voice=voices.find(v=>/samantha|ava|aria|jenny|google us english|premium|enhanced|natural/i.test(v.name))||voices[0]||null;u.lang=u.voice?.lang||'en-US';u.rate=Number($('cvSpeed').value);u.pitch=1;speechSynthesis.speak(u)}
-  function addTurn(role,english,japanese,corrected,note){
+  function addTurn(role,english,japanese,feedback={}){
     const welcome=$('cvWelcome');if(welcome)welcome.remove();const row=document.createElement('div');row.className='cvTurn '+(role==='ai'?'ai':'user');
-    const correction=role==='user'&&$('cvCorrectionMode').value==='brief'&&corrected&&corrected.trim()!==english.trim()?`<div class="cvCorrection"><strong>Natural English</strong><br>${esc(corrected)}${note?`<br><small>${esc(note)}</small>`:''}</div>`:'';
+    let correction='';
+    if(role==='user'&&$('cvCorrectionMode').value==='brief'){
+      const minimal=feedback.minimalCorrection||english,natural=feedback.naturalEnglish||minimal;
+      const minimalChanged=minimal.trim()!==english.trim(),naturalChanged=natural.trim()!==minimal.trim();
+      const possible=feedback.possibleIntentionEnglish&&feedback.possibleIntentionEnglish.trim()!==natural.trim();
+      correction=`<div class="cvFeedback">
+        <div class="cvFeedbackBlock minimal"><strong>1. Minimal Correction｜最小限の訂正</strong><p>${esc(minimal)}</p><small>${esc(feedback.minimalNote||(!minimalChanged?'文法上の重要な訂正はありません。':'元の意味を変えずに訂正しました。'))}</small></div>
+        <div class="cvFeedbackBlock natural"><strong>2. Natural English｜自然な英語</strong><p>${esc(natural)}</p><small>${esc(feedback.naturalNote||(!naturalChanged?'最小限の訂正と同じ表現が自然です。':'元の意味を維持した自然な表現です。'))}</small></div>
+        ${possible?`<div class="cvFeedbackBlock possible"><strong>3. Possible Meaning｜別の意図の候補</strong><p><em>If you meant ...</em> ${esc(feedback.possibleIntentionEnglish)}</p><small>${esc(feedback.possibleIntentionJapanese||'文脈から考えられる別の意図です。元の発言の訂正ではありません。')}</small></div>`:''}
+        ${feedback.clarifyingQuestion?`<div class="cvClarify"><strong>意味の確認：</strong>${esc(feedback.clarifyingQuestion)}</div>`:''}
+      </div>`;
+    }
     row.innerHTML=`<div class="cvAvatar">${role==='ai'?'AI':'You'}</div><div class="cvBubble"><div class="cvWho">${role==='ai'?'AI PARTNER':'YOU'}</div><div class="cvEnglish">${esc(english)}</div><div class="cvJapanese">${esc(japanese)}</div>${correction}${role==='ai'?'<div class="cvBubbleActions"><button class="cvMini">🔊 もう一度聞く</button></div>':''}</div>`;
     if(role==='ai')row.querySelector('.cvMini').onclick=()=>speak(english);chat.appendChild(row);row.scrollIntoView({behavior:'smooth',block:'end'});
   }
@@ -172,11 +183,29 @@ react/cjs/react-jsx-runtime.production.js:
     const key=(localStorage.getItem(keyName)||'').trim();if(!key){$('cvApi').click();throw new Error('最初にGemini APIキーを設定してください。')}
     const b64=await blobToBase64(blob), topic=$('cvTopic').value, level=$('cvLevel').value;
     const recent=conversation.slice(-8).map(x=>`${x.role}: ${x.text}`).join('\n');
-    const prompt=`You are a friendly English conversation partner and coach for a Japanese learner at ${level}. Topic: ${topic}. Listen to the audio. The learner is speaking English. Return valid JSON only with these keys: transcript (exact English transcription), userTranslation (natural Japanese translation), correctedEnglish (minimal natural correction preserving meaning), correctionNote (one short Japanese explanation, empty if no important correction), replyEnglish (a friendly 1-3 sentence English response that keeps the conversation going and includes one easy question), replyTranslation (natural Japanese translation). Do not answer in Japanese except the translation and correction note. Avoid overly difficult vocabulary. Conversation so far:\n${recent||'(first turn)'}`;
-    return callGemini(key,{contents:[{parts:[{text:prompt},{inlineData:{mimeType:blob.type||'audio/webm',data:b64}}]}],generationConfig:{responseMimeType:'application/json',maxOutputTokens:1800,temperature:.7}});
+    const prompt=`You are a precise English conversation partner and coach for a Japanese learner at ${level}. Topic: ${topic}. Listen to the English audio and return valid JSON only.
+
+REQUIRED KEYS:
+transcript: exact English transcription.
+userTranslation: faithful natural Japanese translation of the transcript.
+minimalCorrection: correct only objective grammar, word choice, and usage errors. Preserve every intended meaning. Never replace an idea with an inferred idea.
+minimalNote: one short Japanese explanation. If no correction is needed, say so.
+naturalEnglish: a natural version that preserves the same meaning, attitude, certainty, and time reference as the transcript. Do not add feelings or facts.
+naturalNote: one short Japanese explanation of the natural phrasing.
+possibleIntentionEnglish: only when context suggests a different possible intention, give it separately as a conditional alternative. Otherwise return an empty string.
+possibleIntentionJapanese: explain in Japanese that this is an inferred alternative, not a correction. Otherwise return an empty string.
+meaningChanged: true only if possibleIntentionEnglish expresses a meaning different from the transcript.
+clarifyingQuestion: when the intended meaning is genuinely ambiguous, ask one short Japanese confirmation question. Otherwise return an empty string.
+replyEnglish: a friendly 1-3 sentence English reply at ${level} that responds to what was actually said and includes one easy question.
+replyTranslation: natural Japanese translation of replyEnglish.
+
+CRITICAL RULE: Never place an inferred meaning inside minimalCorrection or naturalEnglish. For example, "I feel fine" means the speaker feels well; it must not be changed to "I'm looking forward to it." If that may be the intended meaning, put it only in possibleIntentionEnglish beginning conceptually with "If you meant ...". Distinguish correction from interpretation.
+
+Conversation so far:\n${recent||'(first turn)'}`;
+    return callGemini(key,{contents:[{parts:[{text:prompt},{inlineData:{mimeType:blob.type||'audio/webm',data:b64}}]}],generationConfig:{responseMimeType:'application/json',maxOutputTokens:2400,temperature:.35}});
   }
   async function start(){
-    clearError();if(busy)return;try{speechSynthesis?.cancel();const stream=await navigator.mediaDevices.getUserMedia({audio:true});const preferred=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'';recorder=new MediaRecorder(stream,preferred?{mimeType:preferred}:undefined);chunks=[];recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};recorder.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});busy=true;mic.disabled=true;setStatus('英語を文字化し、返答を考えています…');hint.textContent='少しお待ちください';try{const r=await processAudio(blob);if(!r.transcript)throw new Error('英語を聞き取れませんでした。少し長めにはっきり話してください。');addTurn('user',r.transcript,r.userTranslation,r.correctedEnglish,r.correctionNote);conversation.push({role:'user',text:r.correctedEnglish||r.transcript});addTurn('ai',r.replyEnglish,r.replyTranslation);conversation.push({role:'assistant',text:r.replyEnglish});setStatus('AIが返答しました。続けて英語で話せます。');speak(r.replyEnglish)}catch(e){showError(e.message||'処理できませんでした。');setStatus('もう一度お試しください。')}finally{busy=false;mic.disabled=false;hint.textContent='タップして次の発話を録音します'}};recorder.start();recording=true;mic.classList.add('recording');mic.textContent='■';status.classList.add('recording');setStatus('録音中です。話し終えたら停止してください。','recording');hint.textContent='タップして録音を停止します'}catch(e){showError('マイクを開始できませんでした。ブラウザのマイク許可を確認してください。');recording=false}}
+    clearError();if(busy)return;try{speechSynthesis?.cancel();const stream=await navigator.mediaDevices.getUserMedia({audio:true});const preferred=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'';recorder=new MediaRecorder(stream,preferred?{mimeType:preferred}:undefined);chunks=[];recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};recorder.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});busy=true;mic.disabled=true;setStatus('英語を文字化し、意味を守って添削しています…');hint.textContent='少しお待ちください';try{const r=await processAudio(blob);if(!r.transcript)throw new Error('英語を聞き取れませんでした。少し長めにはっきり話してください。');addTurn('user',r.transcript,r.userTranslation,r);conversation.push({role:'user',text:r.minimalCorrection||r.transcript});addTurn('ai',r.replyEnglish,r.replyTranslation);conversation.push({role:'assistant',text:r.replyEnglish});setStatus('AIが返答しました。続けて英語で話せます。');speak(r.replyEnglish)}catch(e){showError(e.message||'処理できませんでした。');setStatus('もう一度お試しください。')}finally{busy=false;mic.disabled=false;hint.textContent='タップして次の発話を録音します'}};recorder.start();recording=true;mic.classList.add('recording');mic.textContent='■';status.classList.add('recording');setStatus('録音中です。話し終えたら停止してください。','recording');hint.textContent='タップして録音を停止します'}catch(e){showError('マイクを開始できませんでした。ブラウザのマイク許可を確認してください。');recording=false}}
   function stop(){if(recorder&&recorder.state!=='inactive')recorder.stop();recording=false;mic.classList.remove('recording');mic.textContent='🎙️';status.classList.remove('recording')}
   mic.onclick=()=>recording?stop():start();
 })();
@@ -185,15 +214,29 @@ react/cjs/react-jsx-runtime.production.js:
 /* Keep the recorder in normal document flow so it never covers the AI reply. */
 #conversationApp .cvChat{padding-bottom:8px}
 #conversationApp .cvControls{position:relative;bottom:auto;margin-bottom:20px;background:#071426;backdrop-filter:none}
+#conversationApp .cvFeedback{display:grid;gap:9px;margin-top:12px}
+#conversationApp .cvFeedbackBlock{padding:11px 13px;border-radius:9px;line-height:1.55}
+#conversationApp .cvFeedbackBlock strong{display:block;margin-bottom:5px;font-size:13px}
+#conversationApp .cvFeedbackBlock p{margin:0 0 4px;color:#f8fafc;font-size:15px}
+#conversationApp .cvFeedbackBlock small{display:block;color:#d4deeb}
+#conversationApp .cvFeedbackBlock.minimal{background:#123326;border:1px solid #34d39977}
+#conversationApp .cvFeedbackBlock.minimal strong{color:#6ee7b7}
+#conversationApp .cvFeedbackBlock.natural{background:#282047;border:1px solid #a78bfa77}
+#conversationApp .cvFeedbackBlock.natural strong{color:#c4b5fd}
+#conversationApp .cvFeedbackBlock.possible{background:#382b0b;border:1px solid #fbbf2477}
+#conversationApp .cvFeedbackBlock.possible strong{color:#fde68a}
+#conversationApp .cvFeedbackBlock.possible em{color:#fcd34d;font-style:normal;font-weight:800}
+#conversationApp .cvClarify{padding:9px 11px;border-radius:8px;background:#172554;border:1px solid #60a5fa66;color:#dbeafe;font-size:13px}
+@media(max-width:720px){#conversationApp .cvFeedbackBlock{padding:10px}#conversationApp .cvFeedbackBlock p{font-size:14px}}
 </style>
 <script>
-/* The analysis screen is the preserved v29 bundle; update only its visible release label. */
+/* The analysis screen is the preserved bundle; update only its visible release label. */
 (()=>{
-  const setV30Label=()=>document.querySelectorAll('.release').forEach(el=>{
-    if(el.textContent.includes('29')) el.textContent='更新版 30';
+  const setCurrentLabel=()=>document.querySelectorAll('.release').forEach(el=>{
+    if(!el.textContent.includes('31')) el.textContent='更新版 31';
   });
-  setV30Label();
-  const observer=new MutationObserver(setV30Label);
+  setCurrentLabel();
+  const observer=new MutationObserver(setCurrentLabel);
   observer.observe(document.getElementById('root'),{childList:true,subtree:true});
 })();
 </script>
