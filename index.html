@@ -335,5 +335,41 @@ Be conservative. Preserving the learner's meaning is more important than making 
   };
 })();
 </script>
+<style>
+#apiHelpButton,.cvApiHelp{cursor:pointer}#apiHelpButton{border:1px solid #22d3ee88;background:#0c2947;color:#bff7ff;border-radius:9px;padding:9px 14px;font-weight:700}
+#apiHelpOverlay[hidden]{display:none}#apiHelpOverlay{position:fixed;inset:0;z-index:1000;background:#020817dc;display:grid;place-items:center;padding:16px;font-family:system-ui,'Noto Sans JP',sans-serif;color:#eaf4ff}
+#apiHelpPanel{width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto;background:#10233b;border:1px solid #4b789d;border-radius:18px;padding:24px;box-shadow:0 25px 75px #0009;line-height:1.65}
+#apiHelpPanel h2{margin:0 0 12px;font-size:22px}#apiHelpPanel h3{font-size:16px;margin:20px 0 5px}#apiHelpPanel ol{padding-left:1.5em}#apiHelpPanel li{margin:7px 0}#apiHelpPanel p{margin:8px 0}#apiHelpPanel .helpCaution{background:#42300f;border-left:4px solid #fbbf24;padding:10px;border-radius:6px}
+#apiHelpPanel .helpActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}#apiHelpPanel button,#apiHelpPanel a.helpAction{display:inline-block;border-radius:9px;border:1px solid #60a5fa;background:#16467d;color:white;padding:9px 12px;text-decoration:none;font-size:14px;font-weight:700;cursor:pointer}#apiHelpPanel button.helpClose{background:transparent}#apiHelpPanel button.helpDelete{border-color:#fca5a5;background:transparent;color:#fecaca}
+</style>
+<div id="apiHelpOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="apiHelpTitle">
+ <div id="apiHelpPanel" tabindex="-1">
+  <h2 id="apiHelpTitle">APIキーの取得・設定・安全な使い方</h2>
+  <p>このアプリでは、利用者ご自身のGoogle Gemini APIキーを使用します。キーはAIを利用するための「合鍵」です。</p>
+  <h3>設定は4ステップ</h3>
+  <ol>
+   <li><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style="color:#93c5fd">Google AI Studioの公式ページ</a>を開き、Googleアカウントでログインします。</li>
+   <li>画面の案内に従ってAPIキーを作成し、コピーします。画面の表示や利用条件は変更されることがあります。</li>
+   <li>このアプリに戻り「⚙ API設定」を開き、キーを貼り付けます。添削モードでは「接続テスト」を押して保存します。英会話モードも同じキーを使います。</li>
+   <li>マイクの使用を許可し、短い英語を話して動作を確かめます。別の端末やブラウザでは設定をやり直してください。</li>
+  </ol>
+  <h3>安全に使うために</h3>
+  <p class="helpCaution">APIキーをメール・SNS・スクリーンショット・GitHubに載せたり、他人に渡したりしないでください。共有端末では保存を避け、使用後は下のボタンで削除してください。</p>
+  <p>このアプリはキーをブラウザの保存領域に置き、Geminiへの通信に使います。ブラウザ内の保存は強固な秘密保管ではありません。ページを改変できる人や同じ端末の利用者に対する保護は保証できません。</p>
+  <p>無料枠、利用回数、料金はモデルとアカウントの設定で異なり、変更されます。課金を有効にする前に<a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" style="color:#93c5fd">公式の料金案内</a>を確認してください。誤って公開したキーはGoogle AI Studioで無効化し、新しいキーを作ってください。</p>
+  <div class="helpActions"><a class="helpAction" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">公式ページでキーを作成 ↗</a><button type="button" id="apiHelpSettings">⚙ API設定を開く</button><button type="button" id="apiHelpDelete" class="helpDelete">この端末のキーを削除</button><button type="button" id="apiHelpClose" class="helpClose">閉じる</button></div>
+ </div>
+</div>
+<script>
+(()=>{const overlay=document.getElementById('apiHelpOverlay'),panel=document.getElementById('apiHelpPanel');let previousFocus;
+const open=()=>{previousFocus=document.activeElement;overlay.hidden=false;panel.focus()},close=()=>{overlay.hidden=true;previousFocus?.focus?.()};
+function install(){const nav=document.querySelector('.topbar nav');if(nav&&!document.getElementById('apiHelpButton')){const b=document.createElement('button');b.type='button';b.id='apiHelpButton';b.textContent='？ APIの使い方・安全';b.onclick=open;nav.append(b)}const cv=document.querySelector('.cvTop .cvActions');if(cv&&!document.getElementById('cvApiHelp')){const b=document.createElement('button');b.type='button';b.id='cvApiHelp';b.className='cvBtn cvApiHelp';b.textContent='？ APIの使い方';b.onclick=open;cv.prepend(b)}}
+install();const observer=new MutationObserver(install);observer.observe(document.getElementById('root'),{childList:true,subtree:true});
+document.getElementById('apiHelpClose').onclick=close;overlay.addEventListener('click',e=>{if(e.target===overlay)close()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!overlay.hidden)close()});
+document.getElementById('apiHelpSettings').onclick=()=>{close();const btn=document.querySelector('#conversationApp.active #cvApi')||Array.from(document.querySelectorAll('.topbar nav button')).find(b=>b.textContent.includes('API設定'));btn?.click()};
+document.getElementById('apiHelpDelete').onclick=()=>{if(!confirm('この端末に保存したGemini APIキーを削除しますか？'))return;localStorage.removeItem('gemini-api-key');location.reload()};
+})();
+</script>
+
 </body>
 </html>
