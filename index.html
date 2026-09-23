@@ -44,6 +44,12 @@
 .browserWarning{margin:12px 28px 0;padding:12px 15px;border:1px solid #fbbf2477;border-radius:9px;background:#4a321099;color:#fde68a;font-size:13px;line-height:1.6;text-align:center}
 @media(max-width:720px){.browserWarning{margin:10px 14px 0;font-size:12px;text-align:left}}
 </style>
+<style>
+/* Let the startup transcript panel settle before revealing its text. */
+@keyframes initialTranscriptReveal { 0%, 70% { opacity: 0 } 100% { opacity: 1 } }
+.speechPanel .transcript { animation: initialTranscriptReveal .65s ease-out both }
+@media (prefers-reduced-motion: reduce) { .speechPanel .transcript { animation: none } }
+</style>
 </head>
 <body>
   <div id="root"></div>
@@ -336,12 +342,13 @@ Be conservative. Preserving the learner's meaning is more important than making 
 })();
 </script>
 <style>
-#apiHelpButton,.cvApiHelp{cursor:pointer}#apiHelpButton{border:1px solid #22d3ee88;background:#0c2947;color:#bff7ff;border-radius:9px;padding:9px 14px;font-weight:700}
+#apiHelpButton{position:fixed;left:18px;bottom:18px;z-index:90;cursor:pointer;border:1px solid #22d3ee88;background:#0c2947;color:#bff7ff;border-radius:999px;padding:12px 16px;font-weight:700;box-shadow:0 8px 26px #0008}
 #apiHelpOverlay[hidden]{display:none}#apiHelpOverlay{position:fixed;inset:0;z-index:1000;background:#020817dc;display:grid;place-items:center;padding:16px;font-family:system-ui,'Noto Sans JP',sans-serif;color:#eaf4ff}
 #apiHelpPanel{width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto;background:#10233b;border:1px solid #4b789d;border-radius:18px;padding:24px;box-shadow:0 25px 75px #0009;line-height:1.65}
 #apiHelpPanel h2{margin:0 0 12px;font-size:22px}#apiHelpPanel h3{font-size:16px;margin:20px 0 5px}#apiHelpPanel ol{padding-left:1.5em}#apiHelpPanel li{margin:7px 0}#apiHelpPanel p{margin:8px 0}#apiHelpPanel .helpCaution{background:#42300f;border-left:4px solid #fbbf24;padding:10px;border-radius:6px}
 #apiHelpPanel .helpActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}#apiHelpPanel button,#apiHelpPanel a.helpAction{display:inline-block;border-radius:9px;border:1px solid #60a5fa;background:#16467d;color:white;padding:9px 12px;text-decoration:none;font-size:14px;font-weight:700;cursor:pointer}#apiHelpPanel button.helpClose{background:transparent}#apiHelpPanel button.helpDelete{border-color:#fca5a5;background:transparent;color:#fecaca}
 </style>
+<button id="apiHelpButton" type="button">？ APIの使い方・安全</button>
 <div id="apiHelpOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="apiHelpTitle">
  <div id="apiHelpPanel" tabindex="-1">
   <h2 id="apiHelpTitle">APIキーの取得・設定・安全な使い方</h2>
@@ -363,8 +370,7 @@ Be conservative. Preserving the learner's meaning is more important than making 
 <script>
 (()=>{const overlay=document.getElementById('apiHelpOverlay'),panel=document.getElementById('apiHelpPanel');let previousFocus;
 const open=()=>{previousFocus=document.activeElement;overlay.hidden=false;panel.focus()},close=()=>{overlay.hidden=true;previousFocus?.focus?.()};
-function install(){const nav=document.querySelector('.topbar nav');if(nav&&!document.getElementById('apiHelpButton')){const b=document.createElement('button');b.type='button';b.id='apiHelpButton';b.textContent='？ APIの使い方・安全';b.onclick=open;nav.append(b)}const cv=document.querySelector('.cvTop .cvActions');if(cv&&!document.getElementById('cvApiHelp')){const b=document.createElement('button');b.type='button';b.id='cvApiHelp';b.className='cvBtn cvApiHelp';b.textContent='？ APIの使い方';b.onclick=open;cv.prepend(b)}}
-install();const observer=new MutationObserver(install);observer.observe(document.getElementById('root'),{childList:true,subtree:true});
+document.getElementById('apiHelpButton').onclick=open;
 document.getElementById('apiHelpClose').onclick=close;overlay.addEventListener('click',e=>{if(e.target===overlay)close()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!overlay.hidden)close()});
 document.getElementById('apiHelpSettings').onclick=()=>{close();const btn=document.querySelector('#conversationApp.active #cvApi')||Array.from(document.querySelectorAll('.topbar nav button')).find(b=>b.textContent.includes('API設定'));btn?.click()};
 document.getElementById('apiHelpDelete').onclick=()=>{if(!confirm('この端末に保存したGemini APIキーを削除しますか？'))return;localStorage.removeItem('gemini-api-key');location.reload()};
